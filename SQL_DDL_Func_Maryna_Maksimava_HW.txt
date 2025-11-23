@@ -1,0 +1,150 @@
+1
+film_in_stock
+
+This function checks if a film has any inventory items available right now.
+It returns the list of inventory IDs that are not rented.
+
+film_not_in_stock
+
+Opposite of film_in_stock.
+It returns inventory IDs that are currently rented out or missing.
+
+inventory_in_stock
+
+Checks if one specific inventory item is available.
+Returns true or false.
+
+get_customer_balance
+
+This function calculates how much money a customer owes.
+It looks at payments and rental dates, but the logic is not fully correct.
+
+inventory_held_by_customer
+
+Shows which inventory items a customer still has and didn’t return.
+
+rewards_report
+
+This should return a list of customers who get a reward (a free rental).
+
+last_day
+
+Takes a date and then returns the last day of that month.
+
+2
+It filters customers incorrectly, so no customer matches the rules. 
+3
+CREATE OR REPLACE FUNCTION rewards_report(
+    min_monthly_purchases integer,
+    min_dollar_amount numeric
+)
+RETURNS SETOF customer AS
+$$
+BEGIN
+   RETURN QUERY
+   SELECT c.*
+   FROM customer c
+   JOIN payment p ON p.customer_id = c.customer_id
+   WHERE date_part('month', p.payment_date) = date_part('month', CURRENT_DATE)
+     AND date_part('year', p.payment_date) = date_part('year', CURRENT_DATE)
+   GROUP BY c.customer_id
+   HAVING COUNT(*) >= min_monthly_purchases
+      AND SUM(p.amount) >= min_dollar_amount;
+END;
+$$ LANGUAGE plpgsql;
+
+3
+_group_concat.
+
+I PostgreSQL  string_agg() can be used for the same purpose.
+
+4
+CREATE OR REPLACE FUNCTION public.get_customer_balance(
+    p_customer_id integer,
+    p_effective_date timestamp with time zone
+)
+RETURNS numeric
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_rentfees      numeric := 0;
+    v_latefees      numeric := 0;
+    v_replacefees   numeric := 0;
+    v_payments      numeric := 0;
+BEGIN
+    -----------------------------------------------------------------
+    -- 1) Rental fees
+    -----------------------------------------------------------------
+    SELECT COALESCE(SUM(f.rental_rate), 0)
+    INTO v_rentfees
+    FROM rental r
+    JOIN inventory i ON r.inventory_id = i.inventory_id
+    JOIN film f ON f.film_id = i.film_id
+    WHERE r.customer_id = p_customer_id
+      AND r.rental_date <= p_effective_date;
+
+    -----------------------------------------------------------------
+    -- 2) Late fees ($1 per overdue day)
+    -----------------------------------------------------------------
+    SELECT COALESCE(SUM(
+        GREATEST(
+            (EXTRACT(DAY FROM (COALESCE(r.return_date, p_effective_date) - r.rental_date))) 
+            - f.rental_duration,
+            0
+        )
+    ), 0)
+    INTO v_latefees
+    FROM rental r
+    JOIN inventory i ON r.inventory_id = i.inventory_id
+    JOIN film f ON f.film_id = i.film_id
+    WHERE r.customer_id = p_customer_id
+      AND r.rental_date <= p_effective_date;
+
+    -----------------------------------------------------------------
+    -- 3) Replacement fees (if more than double overdue)
+    -----------------------------------------------------------------
+    SELECT COALESCE(SUM(
+        CASE
+            WHEN (EXTRACT(DAY FROM (COALESCE(r.return_date, p_effective_date) - r.rental_date)))
+                 > f.rental_duration * 2
+            THEN f.replacement_cost
+            ELSE 0
+        END
+    ), 0)
+    INTO v_replacefees
+    FROM rental r
+    JOIN inventory i ON r.inventory_id = i.inventory_id
+    JOIN film f ON f.film_id = i.film_id
+    WHERE r.customer_id = p_customer_id
+      AND r.rental_date <= p_effective_date;
+
+    -----------------------------------------------------------------
+    -- 4) Payments
+    -----------------------------------------------------------------
+    SELECT COALESCE(SUM(amount), 0)
+    INTO v_payments
+    FROM payment
+    WHERE customer_id = p_customer_id
+      AND payment_date <= p_effective_date;
+
+    -----------------------------------------------------------------
+    -- Final result
+    -----------------------------------------------------------------
+    RETURN v_rentfees + v_latefees + v_replacefees - v_payments;
+END;
+$$;
+
+5
+This function makes one long text from many rows.
+like
+Rows: "A", "B".
+group_concat makes it "A,B"
+6
+This function returns the current datetime.
+It is used in triggers for tables to update the last_update column.
+
+7
+tmpSQL is a temporary text variable that holds SQL code as a string.
+We can remove dynamic SQL.
+We don’t need EXECUTE because SQL does not need to be created dynamically. It’s always the same code/text. 
+Dynamic SQL is only needed when table names or column names change, but we don’t do it here.
