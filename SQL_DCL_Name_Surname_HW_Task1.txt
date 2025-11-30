@@ -1,0 +1,17 @@
+--1
+SELECT usename FROM pg_user;
+--"postgres"
+
+SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants ORDER BY table_name;
+--"grantee","table_name","privilege_type"
+--"postgres","_pg_foreign_data_wrappers","UPDATE"
+--postgres","_pg_foreign_data_wrappers","DELETE"
+--"postgres","_pg_foreign_data_wrappers","TRUNCATE"
+--"postgres","_pg_foreign_data_wrappers","REFERENCES"…………
+--see attachment ‘data-1764542569401.csv’
+
+SELECT * FROM pg_policies;
+--empty
+
+SELECT datname, datconnlimit FROM pg_database WHERE datname='dvd_rental';
+--empty
