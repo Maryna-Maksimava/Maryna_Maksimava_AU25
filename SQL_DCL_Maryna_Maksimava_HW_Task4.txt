@@ -1,0 +1,10 @@
+1 by granting access only to specific columns of the table and not the others.
+GRANT SELECT(column_name) ON table TO role;
+Or by creating views with certain columns and granting access to them. 
+Also functions returning specific data can be created.
+
+2 Identification is the act of identifying a particular user, often through a username. Authentication is proving the user is who they claim to be by the means of password/certificate/etc.
+3 Recommended PostgreSQL authentication protocols:
+  - SCRAM-SHA-256 (modern & secure)
+  - Client certificates for high-security environments
+4 Proxy authentication in PostgreSQL lets an app connect to the database using a shared account, then switch to act as a specific user without needing their password, making it safer and easier to control who sees what data. It simplifies role-based access control by letting the app handle logins outside the database while using built-in roles to enforce permissions, avoiding the hassle of managing individual user connections.

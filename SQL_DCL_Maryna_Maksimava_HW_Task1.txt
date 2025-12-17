@@ -1,0 +1,38 @@
+--1
+SELECT usename FROM pg_user;
+--"postgres"
+
+SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants ORDER BY table_name;
+--"grantee","table_name","privilege_type"
+--"postgres","_pg_foreign_data_wrappers","UPDATE"
+--postgres","_pg_foreign_data_wrappers","DELETE"
+--"postgres","_pg_foreign_data_wrappers","TRUNCATE"
+--"postgres","_pg_foreign_data_wrappers","REFERENCES"…………
+--see attachment ‘data-1764542569401.csv’
+
+SELECT * FROM pg_policies;
+--empty
+
+SELECT datname, datconnlimit FROM pg_database WHERE datname='dvd_rental';
+--empty
+
+
+1.
+The database contains only one user: postgres.
+
+postgres is a superuser in PostgreSQL by default.
+The database relies on superuser-only access.
+There is no role separation (e.g. read-only, reporting, application roles).
+2. 
+Table-Level Privileges
+all the privileges to tables are granted to postgres, only select (read) privileges are granted to PUBLIC.
+3.
+No row-level security policies are defined.
+4. The database exists, but datconnlimit is not explicitly restricted.
+
+In PostgreSQL, this means unlimited connections
+
+5. presence of only postgres user, no role separation
+
+
+Authentication is handled externally via pg_hba.conf
