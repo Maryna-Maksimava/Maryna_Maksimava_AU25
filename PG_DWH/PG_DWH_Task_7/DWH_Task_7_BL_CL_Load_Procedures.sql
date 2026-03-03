@@ -1,14 +1,32 @@
 CREATE SCHEMA IF NOT EXISTS BL_CL;
+  
 
-GRANT USAGE ON SCHEMA sa_online  TO PUBLIC;
-GRANT USAGE ON SCHEMA sa_offline TO PUBLIC;
-GRANT SELECT ON ALL TABLES IN SCHEMA sa_online  TO PUBLIC;
-GRANT SELECT ON ALL TABLES IN SCHEMA sa_offline TO PUBLIC;
-
-GRANT USAGE ON SCHEMA BL_3NF TO PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA BL_3NF TO PUBLIC;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bl_cl_role') THEN
+        CREATE ROLE bl_cl_role;
+    END IF;
+END $$;
+ 
+GRANT bl_cl_role TO CURRENT_USER;
+ 
+GRANT USAGE  ON SCHEMA sa_online  TO bl_cl_role;
+GRANT USAGE  ON SCHEMA sa_offline TO bl_cl_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA sa_online  TO bl_cl_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA sa_offline TO bl_cl_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA sa_online  GRANT SELECT ON TABLES TO bl_cl_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA sa_offline GRANT SELECT ON TABLES TO bl_cl_role;
+ 
+GRANT USAGE                       ON SCHEMA BL_3NF TO bl_cl_role;
+GRANT SELECT, INSERT, UPDATE      ON ALL TABLES IN SCHEMA BL_3NF TO bl_cl_role;
+GRANT USAGE                       ON ALL SEQUENCES IN SCHEMA BL_3NF TO bl_cl_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA BL_3NF
-    GRANT SELECT, INSERT, UPDATE ON TABLES TO PUBLIC;
+    GRANT SELECT, INSERT, UPDATE ON TABLES    TO bl_cl_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA BL_3NF
+    GRANT USAGE                  ON SEQUENCES TO bl_cl_role;
+ 
+GRANT USAGE, CREATE               ON SCHEMA BL_CL TO bl_cl_role;
+GRANT SELECT, INSERT, UPDATE      ON ALL TABLES IN SCHEMA BL_CL TO bl_cl_role;
+GRANT USAGE                       ON ALL SEQUENCES IN SCHEMA BL_CL TO bl_cl_role;
     
 
 CREATE TABLE IF NOT EXISTS BL_CL.LOAD_LOG (
@@ -23,6 +41,37 @@ CREATE TABLE IF NOT EXISTS BL_CL.LOAD_LOG (
 );
 
 
+ 
+
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_country_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_region_id        START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_city_id          START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_address_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_comm_channel_id  START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_order_status_id  START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_pay_method_id    START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_pay_status_id    START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_pay_currency_id  START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_pay_processor_id START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_del_status_id    START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_del_type_id      START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_store_format_id  START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_wh_type_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_courier_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_role_id          START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_shift_id         START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_channel_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_category_id      START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_brand_id         START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_product_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_warehouse_id     START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_store_id         START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_customer_id      START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_cashier_id       START 1;
+CREATE SEQUENCE IF NOT EXISTS BL_3NF.seq_order_id         START 1;
+
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA BL_3NF TO bl_cl_role;
+ 
 
 CREATE OR REPLACE PROCEDURE BL_CL.log_load(
     p_procedure_name VARCHAR,
@@ -219,10 +268,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_COUNTRIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(country_id), 0) INTO v_max_id FROM BL_3NF.LKP_COUNTRIES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(x.nm), ''), 'UNKNOWN') AS country_name
@@ -240,12 +287,11 @@ BEGIN
         )
         ORDER BY country_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_COUNTRIES (
             country_id, country_code, country_name, ta_insert_dt,
             source_system, source_entity, src_country_id
         ) VALUES (
-            v_max_id,
+            nextval('BL_3NF.seq_country_id'),
             CASE WHEN LENGTH(r.country_name) >= 3 THEN UPPER(LEFT(r.country_name, 3))
                  ELSE UPPER(r.country_name) END,
             r.country_name, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
@@ -272,10 +318,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_COUNTRIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(country_id), 0) INTO v_max_id FROM BL_3NF.LKP_COUNTRIES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(x.nm), ''), 'UNKNOWN') AS country_name
@@ -293,12 +337,11 @@ BEGIN
         )
         ORDER BY country_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_COUNTRIES (
             country_id, country_code, country_name, ta_insert_dt,
             source_system, source_entity, src_country_id
         ) VALUES (
-            v_max_id,
+            nextval('BL_3NF.seq_country_id'),
             CASE WHEN LENGTH(r.country_name) >= 3 THEN UPPER(LEFT(r.country_name, 3))
                  ELSE UPPER(r.country_name) END,
             r.country_name, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
@@ -325,10 +368,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_REGIONS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(region_id), 0) INTO v_max_id FROM BL_3NF.LKP_REGIONS;
 
     FOR r IN (
         WITH src AS (
@@ -355,12 +396,11 @@ BEGIN
         )
         ORDER BY c.country_id, src.region_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_REGIONS (
             region_id, region_name, country_id, ta_insert_dt,
             source_system, source_entity, source_region_id
         ) VALUES (
-            v_max_id, r.region_name, r.country_id, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_country_id'), r.region_name, r.country_id, CURRENT_TIMESTAMP,
             v_src_sys, v_src_ent, r.source_region_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -384,10 +424,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_REGIONS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(region_id), 0) INTO v_max_id FROM BL_3NF.LKP_REGIONS;
 
     FOR r IN (
         WITH src AS (
@@ -414,12 +452,11 @@ BEGIN
         )
         ORDER BY c.country_id, src.region_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_REGIONS (
             region_id, region_name, country_id, ta_insert_dt,
             source_system, source_entity, source_region_id
         ) VALUES (
-            v_max_id, r.region_name, r.country_id, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_country_id'), r.region_name, r.country_id, CURRENT_TIMESTAMP,
             v_src_sys, v_src_ent, r.source_region_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -443,10 +480,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_CITIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(city_id), 0) INTO v_max_id FROM BL_3NF.LKP_CITIES;
 
     FOR r IN (
         WITH src AS (
@@ -476,12 +511,11 @@ BEGIN
         )
         ORDER BY reg.region_id, src.city_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_CITIES (
             city_id, city_name, region_id, ta_insert_dt,
             source_system, source_entity, source_city_id
         ) VALUES (
-            v_max_id, r.city_name, r.region_id, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_region_id'), r.city_name, r.region_id, CURRENT_TIMESTAMP,
             v_src_sys, v_src_ent, r.source_city_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -505,10 +539,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_CITIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(city_id), 0) INTO v_max_id FROM BL_3NF.LKP_CITIES;
 
     FOR r IN (
         WITH src AS (
@@ -538,12 +570,11 @@ BEGIN
         )
         ORDER BY reg.region_id, src.city_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_CITIES (
             city_id, city_name, region_id, ta_insert_dt,
             source_system, source_entity, source_city_id
         ) VALUES (
-            v_max_id, r.city_name, r.region_id, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_region_id'), r.city_name, r.region_id, CURRENT_TIMESTAMP,
             v_src_sys, v_src_ent, r.source_city_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -567,21 +598,18 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_ADDRESSES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(address_id), 0) INTO v_max_id FROM BL_3NF.LKP_ADDRESSES;
 
     FOR r IN (
         SELECT * FROM BL_CL.fn_get_new_addresses(v_src_sys, v_src_ent)
         ORDER BY city_id, street, house_number, apartment_number, postal_code
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_ADDRESSES (
             address_id, street, house_number, apartment_number, postal_code,
             city_id, ta_insert_dt, source_entity, source_system, source_address_id
         ) VALUES (
-            v_max_id, r.street, r.house_number, r.apartment_number, r.postal_code,
+            nextval('BL_3NF.seq_city_id'), r.street, r.house_number, r.apartment_number, r.postal_code,
             r.city_id, CURRENT_TIMESTAMP, v_src_ent, v_src_sys, r.source_address_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -605,21 +633,18 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_ADDRESSES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(address_id), 0) INTO v_max_id FROM BL_3NF.LKP_ADDRESSES;
 
     FOR r IN (
         SELECT * FROM BL_CL.fn_get_new_addresses(v_src_sys, v_src_ent)
         ORDER BY city_id, street, house_number, apartment_number, postal_code
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_ADDRESSES (
             address_id, street, house_number, apartment_number, postal_code,
             city_id, ta_insert_dt, source_entity, source_system, source_address_id
         ) VALUES (
-            v_max_id, r.street, r.house_number, r.apartment_number, r.postal_code,
+            nextval('BL_3NF.seq_city_id'), r.street, r.house_number, r.apartment_number, r.postal_code,
             r.city_id, CURRENT_TIMESTAMP, v_src_ent, v_src_sys, r.source_address_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -641,11 +666,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_lkp_communication_channels';
     v_table  CONSTANT VARCHAR := 'BL_3NF.LKP_COMMUNICATION_CHANNELS';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_COMMUNICATION_CHANNELS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(communication_channel_id), 0) INTO v_max_id
-    FROM BL_3NF.LKP_COMMUNICATION_CHANNELS;
 
     FOR r IN (
         SELECT DISTINCT
@@ -667,12 +689,11 @@ BEGIN
         )
         ORDER BY src_sys, channel_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_COMMUNICATION_CHANNELS (
             communication_channel_id, communication_channel_name, ta_insert_dt,
             source_system, source_entity, source_communication_channel_id
         ) VALUES (
-            v_max_id, r.channel_name, CURRENT_TIMESTAMP, r.src_sys, r.src_ent,
+            nextval('BL_3NF.seq_comm_channel_id'), r.channel_name, CURRENT_TIMESTAMP, r.src_sys, r.src_ent,
             r.src_sys || '|' || r.src_ent || '|' || r.channel_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -694,10 +715,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_lkp_order_statuses';
     v_table  CONSTANT VARCHAR := 'BL_3NF.LKP_ORDER_STATUSES';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_ORDER_STATUSES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(order_status_id), 0) INTO v_max_id FROM BL_3NF.LKP_ORDER_STATUSES;
 
     FOR r IN (
         SELECT DISTINCT
@@ -715,12 +734,11 @@ BEGIN
         )
         ORDER BY src_sys, status_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_ORDER_STATUSES (
             order_status_id, order_status_name, ta_insert_dt, ta_update_dt,
             source_system, source_entity, source_status_id
         ) VALUES (
-            v_max_id, r.status_name, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_order_status_id'), r.status_name, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.status_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -742,10 +760,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_lkp_payment_methods';
     v_table  CONSTANT VARCHAR := 'BL_3NF.LKP_PAYMENT_METHODS';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_PAYMENT_METHODS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(payment_method_id), 0) INTO v_max_id FROM BL_3NF.LKP_PAYMENT_METHODS;
 
     FOR r IN (
         SELECT DISTINCT
@@ -762,12 +778,11 @@ BEGIN
         )
         ORDER BY src_sys, method_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_PAYMENT_METHODS (
             payment_method_id, payment_method_name, ta_insert_dt,
             source_system, source_entity, source_payment_method_id
         ) VALUES (
-            v_max_id, r.method_name, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_pay_method_id'), r.method_name, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.method_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -789,10 +804,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_lkp_payment_statuses';
     v_table  CONSTANT VARCHAR := 'BL_3NF.LKP_PAYMENT_STATUSES';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_PAYMENT_STATUSES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(payment_status_id), 0) INTO v_max_id FROM BL_3NF.LKP_PAYMENT_STATUSES;
 
     FOR r IN (
         SELECT DISTINCT
@@ -809,12 +822,11 @@ BEGIN
         )
         ORDER BY src_sys, status_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_PAYMENT_STATUSES (
             payment_status_id, payment_status_name, ta_insert_dt,
             source_system, source_entity, source_payment_status_id
         ) VALUES (
-            v_max_id, r.status_name, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_pay_status_id'), r.status_name, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.status_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -836,10 +848,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_lkp_payment_currencies';
     v_table  CONSTANT VARCHAR := 'BL_3NF.LKP_PAYMENT_CURRENCIES';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_PAYMENT_CURRENCIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(payment_currency_id), 0) INTO v_max_id FROM BL_3NF.LKP_PAYMENT_CURRENCIES;
 
     FOR r IN (
         SELECT DISTINCT
@@ -856,12 +866,11 @@ BEGIN
         )
         ORDER BY src_sys, currency_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_PAYMENT_CURRENCIES (
             payment_currency_id, payment_currency_name, ta_insert_dt,
             source_system, source_entity, source_payment_currency_id
         ) VALUES (
-            v_max_id, r.currency_name, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_pay_currency_id'), r.currency_name, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.currency_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -883,10 +892,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_lkp_payment_processors';
     v_table  CONSTANT VARCHAR := 'BL_3NF.LKP_PAYMENT_PROCESSORS';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_PAYMENT_PROCESSORS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(payment_processor_id), 0) INTO v_max_id FROM BL_3NF.LKP_PAYMENT_PROCESSORS;
 
     FOR r IN (
         SELECT DISTINCT
@@ -903,12 +910,11 @@ BEGIN
         )
         ORDER BY src_sys, processor_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_PAYMENT_PROCESSORS (
             payment_processor_id, payment_processor_name, ta_insert_dt,
             source_system, source_entity, source_payment_processor_id
         ) VALUES (
-            v_max_id, r.processor_name, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_pay_processor_id'), r.processor_name, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.processor_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -932,10 +938,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_DELIVERY_STATUSES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(delivery_status_id), 0) INTO v_max_id FROM BL_3NF.LKP_DELIVERY_STATUSES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(delivery_status), ''), 'UNKNOWN') AS nm
@@ -947,12 +951,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_DELIVERY_STATUSES (
             delivery_status_id, delivery_status_name, ta_insert_dt,
             source_system, source_entity, source_delivery_status_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_del_status_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -976,10 +979,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_DELIVERY_TYPES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(delivery_type_id), 0) INTO v_max_id FROM BL_3NF.LKP_DELIVERY_TYPES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(delivery_type), ''), 'UNKNOWN') AS nm
@@ -991,12 +992,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_DELIVERY_TYPES (
             delivery_type_id, delivery_type_name, ta_insert_dt,
             source_system, source_entity, source_delivery_type_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_del_type_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1020,10 +1020,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_STORE_FORMATS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(store_format_id), 0) INTO v_max_id FROM BL_3NF.LKP_STORE_FORMATS;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(store_format), ''), 'UNKNOWN') AS nm
@@ -1035,12 +1033,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_STORE_FORMATS (
             store_format_id, store_format_name, ta_insert_dt,
             source_system, source_entity, source_store_format_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_store_format_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1064,10 +1061,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_WAREHOUSE_TYPES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(warehouse_type_id), 0) INTO v_max_id FROM BL_3NF.LKP_WAREHOUSE_TYPES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(warehouse_type), ''), 'UNKNOWN') AS nm
@@ -1079,12 +1074,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_WAREHOUSE_TYPES (
             warehouse_type_id, warehouse_type_name, ta_insert_dt,
             source_system, source_entity, source_warehouse_type_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_wh_type_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1107,10 +1101,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_COURIER_COMPANIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(courier_company_id), 0) INTO v_max_id FROM BL_3NF.LKP_COURIER_COMPANIES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(courier_company), ''), 'UNKNOWN') AS nm
@@ -1122,12 +1114,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_COURIER_COMPANIES (
             courier_company_id, courier_company_name, ta_insert_dt,
             source_system, source_entity, source_courier_company_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_courier_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1151,10 +1142,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_ROLES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(role_id), 0) INTO v_max_id FROM BL_3NF.LKP_ROLES;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(cashier_role), ''), 'UNKNOWN') AS nm
@@ -1166,12 +1155,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_ROLES (
             role_id, role_name, ta_insert_dt,
             source_system, source_entity, source_role_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_role_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1195,10 +1183,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.LKP_SHIFTS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(shift_id), 0) INTO v_max_id FROM BL_3NF.LKP_SHIFTS;
 
     FOR r IN (
         SELECT DISTINCT COALESCE(NULLIF(TRIM(cashier_shift_code), ''), 'UNKNOWN') AS nm
@@ -1210,12 +1196,11 @@ BEGIN
         )
         ORDER BY nm
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.LKP_SHIFTS (
             shift_id, shift_name, ta_insert_dt,
             source_system, source_entity, source_shift_id
         ) VALUES (
-            v_max_id, r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
+            nextval('BL_3NF.seq_shift_id'), r.nm, CURRENT_TIMESTAMP, v_src_sys, v_src_ent,
             v_src_sys || '|' || v_src_ent || '|' || r.nm
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1237,10 +1222,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_ce_product_categories';
     v_table  CONSTANT VARCHAR := 'BL_3NF.CE_PRODUCT_CATEGORIES';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_PRODUCT_CATEGORIES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(category_id), 0) INTO v_max_id FROM BL_3NF.CE_PRODUCT_CATEGORIES;
 
     FOR r IN (
         SELECT DISTINCT
@@ -1257,12 +1240,11 @@ BEGIN
         )
         ORDER BY src_sys, category_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_PRODUCT_CATEGORIES (
             category_id, category_name, ta_insert_dt,
             source_system, source_entity, source_category_id
         ) VALUES (
-            v_max_id, r.category_name, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_category_id'), r.category_name, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.category_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1284,10 +1266,8 @@ DECLARE
     v_proc   CONSTANT VARCHAR := 'BL_CL.load_ce_product_brands';
     v_table  CONSTANT VARCHAR := 'BL_3NF.CE_PRODUCT_BRANDS';
     r        RECORD;
-    v_max_id INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_PRODUCT_BRANDS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(brand_id), 0) INTO v_max_id FROM BL_3NF.CE_PRODUCT_BRANDS;
 
     FOR r IN (
         SELECT DISTINCT
@@ -1304,12 +1284,11 @@ BEGIN
         )
         ORDER BY src_sys, brand_name
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_PRODUCT_BRANDS (
             brand_id, brand_name, ta_insert_dt,
             source_system, source_entity, source_brand_id
         ) VALUES (
-            v_max_id, r.brand_name, CURRENT_TIMESTAMP,
+            nextval('BL_3NF.seq_brand_id'), r.brand_name, CURRENT_TIMESTAMP,
             r.src_sys, r.src_ent, r.src_sys || '|' || r.src_ent || '|' || r.brand_name
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1323,22 +1302,18 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
-
-CREATE OR REPLACE PROCEDURE BL_CL.load_ce_products_scd_online()
+ 
+CREATE OR REPLACE PROCEDURE BL_CL.load_ce_products_scd()
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_rows    INT := 0;
-    v_proc    CONSTANT VARCHAR := 'BL_CL.load_ce_products_scd_online';
-    v_table   CONSTANT VARCHAR := 'BL_3NF.CE_PRODUCTS_SCD';
-    v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
-    v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
-    r         RECORD;
-    v_max_id  INT;
+    v_rows   INT := 0;
+    v_proc   CONSTANT VARCHAR := 'BL_CL.load_ce_products_scd';
+    v_table  CONSTANT VARCHAR := 'BL_3NF.CE_PRODUCTS_SCD';
+    r        RECORD;
 BEGIN
     LOCK TABLE BL_3NF.CE_PRODUCTS_SCD IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(product_id), 0) INTO v_max_id FROM BL_3NF.CE_PRODUCTS_SCD;
 
-    FOR r IN (
+    FOR r IN ( 
         WITH sp AS (
             SELECT DISTINCT
                 COALESCE(NULLIF(TRIM(product_id),          ''), 'UNKNOWN') AS source_product_id,
@@ -1348,107 +1323,60 @@ BEGIN
                 COALESCE(NULLIF(TRIM(product_description), ''), 'UNKNOWN') AS product_description,
                 COALESCE(NULLIF(TRIM(product_country_of_origin), ''), 'UNKNOWN') AS country_name,
                 COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_price),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(12,2) AS product_price,
-                COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_margin_rate),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(5,2) AS product_margin_rate
+                COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_margin_rate),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(5,2) AS product_margin_rate,
+                'SA_ONLINE'::VARCHAR  AS src_sys,
+                'SRC_ONLINE_SALES'::VARCHAR AS src_ent
             FROM sa_online.src_online_sales
-        )
-        SELECT sp.source_product_id, sp.product_name, sp.product_description,
-               sp.product_price, sp.product_margin_rate,
-               c.category_id, b.brand_id, co.country_id AS product_country_of_origin_id
-        FROM sp
-        JOIN BL_3NF.CE_PRODUCT_CATEGORIES c ON c.category_name = sp.category_name AND c.source_system = v_src_sys AND c.source_entity = v_src_ent
-        JOIN BL_3NF.CE_PRODUCT_BRANDS     b ON b.brand_name    = sp.brand_name    AND b.source_system = v_src_sys AND b.source_entity = v_src_ent
-        JOIN BL_3NF.LKP_COUNTRIES        co ON co.country_name = sp.country_name  AND co.source_system = v_src_sys AND co.source_entity = v_src_ent
-        WHERE NOT EXISTS (
-            SELECT 1 FROM BL_3NF.CE_PRODUCTS_SCD t
-            WHERE t.source_product_id = sp.source_product_id
-              AND t.source_system = v_src_sys AND t.source_entity = v_src_ent
-        )
-        ORDER BY sp.source_product_id
-    ) LOOP
-        v_max_id := v_max_id + 1;
-        INSERT INTO BL_3NF.CE_PRODUCTS_SCD (
-            product_id, ta_start_dt, source_product_id, product_name,
-            category_id, brand_id, product_description, product_price,
-            product_country_of_origin_id, product_margin_rate,
-            ta_end_dt, is_active, ta_insert_dt, source_system, source_entity
-        ) VALUES (
-            v_max_id, TIMESTAMP '1900-01-01 00:00:00', r.source_product_id, r.product_name,
-            r.category_id, r.brand_id, r.product_description, r.product_price,
-            r.product_country_of_origin_id, r.product_margin_rate,
-            TIMESTAMP '9999-12-31 00:00:00', TRUE, CURRENT_TIMESTAMP, v_src_sys, v_src_ent
-        ) ON CONFLICT DO NOTHING;
-        v_rows := v_rows + 1;
-    END LOOP;
-
-    CALL BL_CL.log_load(v_proc, v_table, v_src_sys, v_rows, 'SUCCESS',
-        'Loaded ' || v_rows || ' new products from ' || v_src_sys);
-EXCEPTION WHEN OTHERS THEN
-    CALL BL_CL.log_load(v_proc, v_table, v_src_sys, 0, 'ERROR', SQLERRM);
-    RAISE;
-END;
-$$;
-
-
-CREATE OR REPLACE PROCEDURE BL_CL.load_ce_products_scd_offline()
-LANGUAGE plpgsql AS $$
-DECLARE
-    v_rows    INT := 0;
-    v_proc    CONSTANT VARCHAR := 'BL_CL.load_ce_products_scd_offline';
-    v_table   CONSTANT VARCHAR := 'BL_3NF.CE_PRODUCTS_SCD';
-    v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
-    v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
-    r         RECORD;
-    v_max_id  INT;
-BEGIN
-    LOCK TABLE BL_3NF.CE_PRODUCTS_SCD IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(product_id), 0) INTO v_max_id FROM BL_3NF.CE_PRODUCTS_SCD;
-
-    FOR r IN (
-        WITH sp AS (
+            UNION ALL
             SELECT DISTINCT
-                COALESCE(NULLIF(TRIM(product_id),          ''), 'UNKNOWN') AS source_product_id,
-                COALESCE(NULLIF(TRIM(product_name),        ''), 'UNKNOWN') AS product_name,
-                COALESCE(NULLIF(TRIM(product_category),    ''), 'UNKNOWN') AS category_name,
-                COALESCE(NULLIF(TRIM(product_brand),       ''), 'UNKNOWN') AS brand_name,
-                COALESCE(NULLIF(TRIM(product_description), ''), 'UNKNOWN') AS product_description,
-                COALESCE(NULLIF(TRIM(product_country_of_origin), ''), 'UNKNOWN') AS country_name,
-                COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_price),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(12,2) AS product_price,
-                COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_margin_rate),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(5,2) AS product_margin_rate
+                COALESCE(NULLIF(TRIM(product_id),          ''), 'UNKNOWN'),
+                COALESCE(NULLIF(TRIM(product_name),        ''), 'UNKNOWN'),
+                COALESCE(NULLIF(TRIM(product_category),    ''), 'UNKNOWN'),
+                COALESCE(NULLIF(TRIM(product_brand),       ''), 'UNKNOWN'),
+                COALESCE(NULLIF(TRIM(product_description), ''), 'UNKNOWN'),
+                COALESCE(NULLIF(TRIM(product_country_of_origin), ''), 'UNKNOWN'),
+                COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_price),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(12,2),
+                COALESCE(NULLIF(regexp_replace(COALESCE(NULLIF(TRIM(product_margin_rate),''),'0'),'[^0-9\.\-]','','g'),''),'0')::NUMERIC(5,2),
+                'SA_OFFLINE'::VARCHAR,
+                'SRC_OFFLINE_SALES'::VARCHAR
             FROM sa_offline.src_offline_sales
         )
         SELECT sp.source_product_id, sp.product_name, sp.product_description,
-               sp.product_price, sp.product_margin_rate,
+               sp.product_price, sp.product_margin_rate, sp.src_sys, sp.src_ent,
                c.category_id, b.brand_id, co.country_id AS product_country_of_origin_id
         FROM sp
-        JOIN BL_3NF.CE_PRODUCT_CATEGORIES c ON c.category_name = sp.category_name AND c.source_system = v_src_sys AND c.source_entity = v_src_ent
-        JOIN BL_3NF.CE_PRODUCT_BRANDS     b ON b.brand_name    = sp.brand_name    AND b.source_system = v_src_sys AND b.source_entity = v_src_ent
-        JOIN BL_3NF.LKP_COUNTRIES        co ON co.country_name = sp.country_name  AND co.source_system = v_src_sys AND co.source_entity = v_src_ent
+        JOIN BL_3NF.CE_PRODUCT_CATEGORIES c
+          ON c.category_name = sp.category_name AND c.source_system = sp.src_sys AND c.source_entity = sp.src_ent
+        JOIN BL_3NF.CE_PRODUCT_BRANDS b
+          ON b.brand_name    = sp.brand_name    AND b.source_system = sp.src_sys AND b.source_entity = sp.src_ent
+        JOIN BL_3NF.LKP_COUNTRIES co
+          ON co.country_name = sp.country_name  AND co.source_system = sp.src_sys AND co.source_entity = sp.src_ent
         WHERE NOT EXISTS (
             SELECT 1 FROM BL_3NF.CE_PRODUCTS_SCD t
             WHERE t.source_product_id = sp.source_product_id
-              AND t.source_system = v_src_sys AND t.source_entity = v_src_ent
+              AND t.source_system     = sp.src_sys
+              AND t.source_entity     = sp.src_ent
         )
-        ORDER BY sp.source_product_id
+        ORDER BY sp.src_sys, sp.source_product_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_PRODUCTS_SCD (
             product_id, ta_start_dt, source_product_id, product_name,
             category_id, brand_id, product_description, product_price,
             product_country_of_origin_id, product_margin_rate,
             ta_end_dt, is_active, ta_insert_dt, source_system, source_entity
         ) VALUES (
-            v_max_id, TIMESTAMP '1900-01-01 00:00:00', r.source_product_id, r.product_name,
+            nextval('BL_3NF.seq_product_id'), TIMESTAMP '1900-01-01 00:00:00', r.source_product_id, r.product_name,
             r.category_id, r.brand_id, r.product_description, r.product_price,
             r.product_country_of_origin_id, r.product_margin_rate,
-            TIMESTAMP '9999-12-31 00:00:00', TRUE, CURRENT_TIMESTAMP, v_src_sys, v_src_ent
+            TIMESTAMP '9999-12-31 00:00:00', TRUE, CURRENT_TIMESTAMP, r.src_sys, r.src_ent
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
     END LOOP;
 
-    CALL BL_CL.log_load(v_proc, v_table, v_src_sys, v_rows, 'SUCCESS',
-        'Loaded ' || v_rows || ' new products from ' || v_src_sys);
+    CALL BL_CL.log_load(v_proc, v_table, 'ALL', v_rows, 'SUCCESS',
+        'Loaded ' || v_rows || ' new products from SA_ONLINE + SA_OFFLINE');
 EXCEPTION WHEN OTHERS THEN
-    CALL BL_CL.log_load(v_proc, v_table, v_src_sys, 0, 'ERROR', SQLERRM);
+    CALL BL_CL.log_load(v_proc, v_table, 'ALL', 0, 'ERROR', SQLERRM);
     RAISE;
 END;
 $$;
@@ -1463,10 +1391,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_WAREHOUSES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(warehouse_id), 0) INTO v_max_id FROM BL_3NF.CE_WAREHOUSES;
 
     FOR r IN (
         WITH sw AS (
@@ -1502,12 +1428,11 @@ BEGIN
         )
         ORDER BY sw.source_warehouse_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_WAREHOUSES (
             warehouse_id, address_id, warehouse_type_id, capacity_units, num_employees,
             ta_insert_dt, ta_update_dt, source_system, source_entity, source_warehouse_id
         ) VALUES (
-            v_max_id, r.address_id, r.warehouse_type_id, r.capacity_units, r.num_employees,
+            nextval('BL_3NF.seq_address_id'), r.address_id, r.warehouse_type_id, r.capacity_units, r.num_employees,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent, r.source_warehouse_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1531,10 +1456,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_STORES IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(store_id), 0) INTO v_max_id FROM BL_3NF.CE_STORES;
 
     FOR r IN (
         WITH ss AS (
@@ -1568,12 +1491,11 @@ BEGIN
         )
         ORDER BY ss.source_store_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_STORES (
             store_id, store_name, store_format_id, address_id,
             ta_insert_dt, ta_update_dt, source_system, source_entity, source_store_id
         ) VALUES (
-            v_max_id, r.store_name, r.store_format_id, r.address_id,
+            nextval('BL_3NF.seq_address_id'), r.store_name, r.store_format_id, r.address_id,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent, r.source_store_id
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1597,10 +1519,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_CUSTOMERS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(customer_id), 0) INTO v_max_id FROM BL_3NF.CE_CUSTOMERS;
 
     FOR r IN (
         WITH sc AS (
@@ -1645,13 +1565,12 @@ BEGIN
         )
         ORDER BY sc.source_customer_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_CUSTOMERS (
             customer_id, first_name, last_name, email, phone, registration_dt,
             address_id, preferred_communication_channel_id, loyalty_card_number,
             ta_insert_dt, ta_update_dt, source_system, source_entity, source_customer_id
         ) VALUES (
-            v_max_id, r.first_name, r.last_name, r.email, r.phone, r.registration_dt,
+            nextval('BL_3NF.seq_address_id'), r.first_name, r.last_name, r.email, r.phone, r.registration_dt,
             r.address_id, r.communication_channel_id, r.loyalty_card_number,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent, r.source_customer_id
         ) ON CONFLICT DO NOTHING;
@@ -1676,10 +1595,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_CUSTOMERS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(customer_id), 0) INTO v_max_id FROM BL_3NF.CE_CUSTOMERS;
 
     FOR r IN (
         WITH sc AS (
@@ -1724,13 +1641,12 @@ BEGIN
         )
         ORDER BY sc.source_customer_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_CUSTOMERS (
             customer_id, first_name, last_name, email, phone, registration_dt,
             address_id, preferred_communication_channel_id, loyalty_card_number,
             ta_insert_dt, ta_update_dt, source_system, source_entity, source_customer_id
         ) VALUES (
-            v_max_id, r.first_name, r.last_name, r.email, r.phone, r.registration_dt,
+            nextval('BL_3NF.seq_address_id'), r.first_name, r.last_name, r.email, r.phone, r.registration_dt,
             r.address_id, r.communication_channel_id, r.loyalty_card_number,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent, r.source_customer_id
         ) ON CONFLICT DO NOTHING;
@@ -1755,10 +1671,8 @@ DECLARE
     v_src_sys CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r         RECORD;
-    v_max_id  INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_CASHIERS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(cashier_id), 0) INTO v_max_id FROM BL_3NF.CE_CASHIERS;
 
     FOR r IN (
         WITH sc AS (
@@ -1804,13 +1718,12 @@ BEGIN
         )
         ORDER BY sc.source_cashier_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_CASHIERS (
             cashier_id, first_name, last_name, email, phone, employment_dt,
             role_id, shift_id, address_id,
             ta_insert_dt, ta_update_dt, source_system, source_entity, source_cashier_id
         ) VALUES (
-            v_max_id, r.first_name, r.last_name, r.email, r.phone, r.employment_dt,
+            nextval('BL_3NF.seq_address_id'), r.first_name, r.last_name, r.email, r.phone, r.employment_dt,
             r.role_id, r.shift_id, r.address_id,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent, r.source_cashier_id
         ) ON CONFLICT DO NOTHING;
@@ -1835,11 +1748,9 @@ DECLARE
     v_src_sys    CONSTANT VARCHAR := 'SA_ONLINE';
     v_src_ent    CONSTANT VARCHAR := 'SRC_ONLINE_SALES';
     r            RECORD;
-    v_max_id     INT;
     v_channel_id INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_ORDERS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(order_id), 0) INTO v_max_id FROM BL_3NF.CE_ORDERS;
 
     SELECT channel_id INTO v_channel_id
     FROM BL_3NF.LKP_CHANNELS
@@ -1874,12 +1785,11 @@ BEGIN
         )
         ORDER BY so.source_order_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_ORDERS (
             order_id, source_order_id, customer_id, channel_id, order_status_id, order_dt,
             ta_insert_dt, ta_update_dt, source_system, source_entity
         ) VALUES (
-            v_max_id, r.source_order_id, r.customer_id, v_channel_id, r.order_status_id, r.order_dt,
+            nextval('BL_3NF.seq_order_status_id'), r.source_order_id, r.customer_id, v_channel_id, r.order_status_id, r.order_dt,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -1903,11 +1813,9 @@ DECLARE
     v_src_sys    CONSTANT VARCHAR := 'SA_OFFLINE';
     v_src_ent    CONSTANT VARCHAR := 'SRC_OFFLINE_SALES';
     r            RECORD;
-    v_max_id     INT;
     v_channel_id INT;
 BEGIN
     LOCK TABLE BL_3NF.CE_ORDERS IN EXCLUSIVE MODE;
-    SELECT COALESCE(MAX(order_id), 0) INTO v_max_id FROM BL_3NF.CE_ORDERS;
 
     SELECT channel_id INTO v_channel_id
     FROM BL_3NF.LKP_CHANNELS
@@ -1942,12 +1850,11 @@ BEGIN
         )
         ORDER BY so.source_order_id
     ) LOOP
-        v_max_id := v_max_id + 1;
         INSERT INTO BL_3NF.CE_ORDERS (
             order_id, source_order_id, customer_id, channel_id, order_status_id, order_dt,
             ta_insert_dt, ta_update_dt, source_system, source_entity
         ) VALUES (
-            v_max_id, r.source_order_id, r.customer_id, v_channel_id, r.order_status_id, r.order_dt,
+            nextval('BL_3NF.seq_order_status_id'), r.source_order_id, r.customer_id, v_channel_id, r.order_status_id, r.order_dt,
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, v_src_sys, v_src_ent
         ) ON CONFLICT DO NOTHING;
         v_rows := v_rows + 1;
@@ -2026,7 +1933,7 @@ BEGIN
     INSERT INTO BL_3NF.LKP_CHANNELS (
         channel_id, channel_name, ta_insert_dt, source_system, source_entity, source_channel_id
     )
-    SELECT COALESCE((SELECT MAX(channel_id) FROM BL_3NF.LKP_CHANNELS), 0) + 1,
+    SELECT nextval('BL_3NF.seq_channel_id'),
            'ONLINE', CURRENT_TIMESTAMP, 'SA_ONLINE', 'SRC_ONLINE_SALES', 'ONLINE'
     WHERE NOT EXISTS (
         SELECT 1 FROM BL_3NF.LKP_CHANNELS
@@ -2036,7 +1943,7 @@ BEGIN
     INSERT INTO BL_3NF.LKP_CHANNELS (
         channel_id, channel_name, ta_insert_dt, source_system, source_entity, source_channel_id
     )
-    SELECT COALESCE((SELECT MAX(channel_id) FROM BL_3NF.LKP_CHANNELS), 0) + 1,
+    SELECT nextval('BL_3NF.seq_channel_id'),
            'OFFLINE', CURRENT_TIMESTAMP, 'SA_OFFLINE', 'SRC_OFFLINE_SALES', 'OFFLINE'
     WHERE NOT EXISTS (
         SELECT 1 FROM BL_3NF.LKP_CHANNELS
@@ -2071,8 +1978,7 @@ BEGIN
 
     CALL BL_CL.load_ce_product_categories();
     CALL BL_CL.load_ce_product_brands();
-    CALL BL_CL.load_ce_products_scd_online();
-    CALL BL_CL.load_ce_products_scd_offline();
+    CALL BL_CL.load_ce_products_scd();   
 
 
     CALL BL_CL.load_ce_warehouses();
