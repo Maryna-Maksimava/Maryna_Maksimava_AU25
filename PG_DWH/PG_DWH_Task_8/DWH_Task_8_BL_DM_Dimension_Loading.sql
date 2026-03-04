@@ -749,18 +749,18 @@ DECLARE
     v_min_date DATE;
     v_max_date DATE;
     v_sql      TEXT;
-BEGIN
+BEGIN 
     INSERT INTO bl_dm.dim_dates (
         date_id, full_date, day_of_week, day_name, week_of_year,
         month, month_name, quarter, year, is_weekend, is_holiday
     ) VALUES (
-        -1, DATE '1900-01-01', 'UNKNOWN', 'UNKNOWN', -1,
+        -1, DATE '1900-01-01', -1, 'UNKNOWN', -1,
         -1, 'UNKNOWN', -1, -1, FALSE, FALSE
     ) ON CONFLICT (date_id) DO NOTHING;
-
+ 
     SELECT
-        LEAST(MIN(order_dt::DATE), DATE '2000-01-01'),
-        GREATEST(MAX(order_dt::DATE), CURRENT_DATE + INTERVAL '1 year')
+        LEAST(MIN(order_dt::DATE),   DATE '2024-01-01'),
+        GREATEST(MAX(order_dt::DATE), DATE '2026-01-31')
     INTO v_min_date, v_max_date
     FROM bl_3nf.ce_orders
     WHERE order_dt > TIMESTAMP '1900-01-01';
@@ -771,32 +771,78 @@ BEGIN
             month, month_name, quarter, year, is_weekend, is_holiday
         )
         SELECT
-            TO_CHAR(d, 'YYYYMMDD')::BIGINT,
-            d,
-            EXTRACT(ISODOW  FROM d)::BIGINT,
-            TO_CHAR(d, 'Day'),
-            EXTRACT(WEEK    FROM d)::BIGINT,
-            EXTRACT(MONTH   FROM d)::BIGINT,
-            TO_CHAR(d, 'Month'),
-            EXTRACT(QUARTER FROM d)::BIGINT,
-            EXTRACT(YEAR    FROM d)::BIGINT,
-            EXTRACT(ISODOW  FROM d) IN (6, 7),
-            FALSE
+            TO_CHAR(d, 'YYYYMMDD')::BIGINT          AS date_id,
+            d                                        AS full_date,
+            EXTRACT(ISODOW  FROM d)::BIGINT          AS day_of_week,
+            TO_CHAR(d, 'FMDay')                      AS day_name,
+            EXTRACT(WEEK    FROM d)::BIGINT          AS week_of_year,
+            EXTRACT(MONTH   FROM d)::BIGINT          AS month,
+            TO_CHAR(d, 'FMMonth')                    AS month_name,
+            EXTRACT(QUARTER FROM d)::BIGINT          AS quarter,
+            EXTRACT(YEAR    FROM d)::BIGINT          AS year,
+            CASE WHEN EXTRACT(ISODOW FROM d) IN (6,7)
+                 THEN TRUE ELSE FALSE END            AS is_weekend,
+            FALSE                                    AS is_holiday
         FROM generate_series($1::DATE, $2::DATE, '1 day'::INTERVAL) AS d
         ON CONFLICT (date_id) DO NOTHING
     $sql$;
 
     EXECUTE v_sql USING v_min_date, v_max_date;
     GET DIAGNOSTICS v_rows = ROW_COUNT;
+ 
+    UPDATE bl_dm.dim_dates
+    SET    is_holiday = FALSE
+    WHERE  full_date BETWEEN v_min_date AND v_max_date;
+ 
+    UPDATE bl_dm.dim_dates
+    SET    is_holiday = TRUE
+    WHERE  full_date IN (
+        -- 2024
+        DATE '2024-01-01',  -- New Year's Day
+        DATE '2024-02-16',  -- Restoration of the State of Lithuania
+        DATE '2024-03-11',  -- Restoration of Independence
+        DATE '2024-03-31',  -- Easter Sunday
+        DATE '2024-04-01',  -- Easter Monday
+        DATE '2024-05-01',  -- Labour Day
+        DATE '2024-05-05',  -- Mother's Day
+        DATE '2024-06-02',  -- Father's Day
+        DATE '2024-06-24',  -- Joninės (Midsummer)
+        DATE '2024-07-06',  -- Statehood Day
+        DATE '2024-08-15',  -- Assumption
+        DATE '2024-11-01',  -- All Saints' Day
+        DATE '2024-11-02',  -- All Souls' Day
+        DATE '2024-12-24',  -- Christmas Eve
+        DATE '2024-12-25',  -- Christmas Day
+        DATE '2024-12-26',  -- Second Day of Christmas
+        -- 2025
+        DATE '2025-01-01',  -- New Year's Day
+        DATE '2025-02-16',  -- Restoration of the State of Lithuania
+        DATE '2025-03-11',  -- Restoration of Independence
+        DATE '2025-04-20',  -- Easter Sunday
+        DATE '2025-04-21',  -- Easter Monday
+        DATE '2025-05-01',  -- Labour Day
+        DATE '2025-05-04',  -- Mother's Day
+        DATE '2025-06-01',  -- Father's Day
+        DATE '2025-06-24',  -- Joninės (Midsummer)
+        DATE '2025-07-06',  -- Statehood Day
+        DATE '2025-08-15',  -- Assumption
+        DATE '2025-11-01',  -- All Saints' Day
+        DATE '2025-11-02',  -- All Souls' Day
+        DATE '2025-12-24',  -- Christmas Eve
+        DATE '2025-12-25',  -- Christmas Day
+        DATE '2025-12-26',  -- Second Day of Christmas
+        -- 2026
+        DATE '2026-01-01'   -- New Year's Day
+    );
 
     CALL bl_cl.log_load(v_proc, v_table, 'GENERATED', v_rows, 'SUCCESS',
         'Generated dates ' || v_min_date || ' → ' || v_max_date
         || ' | ' || v_rows || ' new rows inserted');
+
 EXCEPTION WHEN OTHERS THEN
     CALL bl_cl.log_load(v_proc, v_table, 'GENERATED', 0, 'ERROR', SQLERRM);
     RAISE;
 END;
-$$;
  
 
 CREATE OR REPLACE PROCEDURE bl_cl.load_all_dm_dims()
