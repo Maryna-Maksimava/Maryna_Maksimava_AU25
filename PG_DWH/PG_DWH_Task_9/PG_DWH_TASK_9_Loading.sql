@@ -147,90 +147,8 @@ END;
 $$;
 
 
-CREATE OR REPLACE PROCEDURE bl_cl.load_fact_order_items()
-LANGUAGE plpgsql AS $$
-DECLARE
-    v_proc     CONSTANT VARCHAR := 'bl_cl.load_fact_order_items';
-    v_table    CONSTANT VARCHAR := 'bl_dm.fact_order_items';
-    v_rows     INT := 0;
-    v_affected INT := 0;
-    r          RECORD;
-BEGIN 
-    FOR r IN (
-        SELECT
-            oi.order_id,
- 
-            oi.product_id,
- 
-            o.customer_id,
- 
-            TO_CHAR(o.order_dt, 'YYYYMMDD')::BIGINT          AS order_date_id,
- 
-            COALESCE(p.payment_id,  -1)                       AS payment_id,
- 
-            o.order_status_id,
- 
-            oi.quantity,
-            oi.discount_amount::BIGINT                        AS discount_amount,
-            oi.order_item_amount::BIGINT                      AS order_items_amount,
-            (oi.order_item_amount
-                - oi.discount_amount)::BIGINT                 AS order_items_amount_after_discount,
- 
-            COALESCE(d.delivery_id, -1)                       AS delivery_id,
- 
-            COALESCE(oof.store_id,   -1)                      AS store_id,
-            COALESCE(oof.cashier_id, -1)                      AS cashier_id,
- 
-            COALESCE(d.warehouse_id, -1)                      AS warehouse_id
 
-        FROM bl_3nf.ce_order_items oi
- 
-        JOIN bl_3nf.ce_orders o
-          ON o.order_id = oi.order_id
- 
-        LEFT JOIN bl_3nf.ce_payments p
-          ON p.order_id = oi.order_id
- 
-        LEFT JOIN bl_3nf.ce_deliveries d
-          ON d.order_id = oi.order_id
- 
-        LEFT JOIN bl_3nf.ce_orders_offline oof
-          ON oof.order_id = oi.order_id
- 
-        WHERE NOT EXISTS (
-            SELECT 1 FROM bl_dm.fact_order_items f
-            WHERE f.order_id   = oi.order_id
-              AND f.product_id = oi.product_id
-        )
-        ORDER BY oi.order_id, oi.product_id
-    ) LOOP
-        INSERT INTO bl_dm.fact_order_items (
-            order_id, product_id, customer_id, order_date_id,
-            payment_id, order_status_id,
-            quantity, discount_amount, order_items_amount,
-            order_items_amount_after_discount,
-            delivery_id, store_id, cashier_id, warehouse_id
-        ) VALUES (
-            r.order_id, r.product_id, r.customer_id, r.order_date_id,
-            r.payment_id, r.order_status_id,
-            r.quantity, r.discount_amount, r.order_items_amount,
-            r.order_items_amount_after_discount,
-            r.delivery_id, r.store_id, r.cashier_id, r.warehouse_id
-        )
-        ON CONFLICT (order_id, product_id) DO NOTHING;
 
-        GET DIAGNOSTICS v_affected = ROW_COUNT;
-        v_rows := v_rows + v_affected;
-    END LOOP;
-
-    CALL bl_cl.log_load(v_proc, v_table, 'BL_3NF', v_rows, 'SUCCESS',
-        'Inserted ' || v_rows || ' new fact rows');
-EXCEPTION WHEN OTHERS THEN
-    CALL bl_cl.log_load(v_proc, v_table, 'BL_3NF', 0, 'ERROR', SQLERRM);
-    RAISE;
-END;
-$$;
- 
 CREATE OR REPLACE PROCEDURE bl_cl.load_all_3nf()
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -332,8 +250,8 @@ BEGIN
     CALL bl_cl.load_dim_warehouses();
     CALL bl_cl.load_dim_payments();
     CALL bl_cl.load_dim_deliveries();
+    CALL bl_cl.load_fact_rolling_window()
 
-    CALL bl_cl.load_fact_order_items();
 
     CALL bl_cl.log_load(v_proc, 'ALL', 'BL_3NF', 0, 'INFO',
         'BL_DM load completed in '
