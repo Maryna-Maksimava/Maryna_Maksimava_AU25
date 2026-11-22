@@ -6,6 +6,8 @@ import sys
 from argparse import ArgumentParser, ArgumentTypeError, FileType
 from io import TextIOWrapper
 from typing import Dict, List
+import json
+import re
 
 DEFAULT_PATH_TO_STORE_INVERTED_INDEX = "inverted.index"
 
@@ -44,11 +46,23 @@ class InvertedIndex:
     """
 
     def __init__(self, words_ids: Dict[str, List[int]]):
-        pass
+        self.index = words_ids
 
     def query(self, words: List[str]) -> List[int]:
         """Return the list of relevant documents for the given query"""
-        pass
+        if not words:
+            return []
+
+        words = [word.lower() for word in words]
+
+        doc_sets = []
+        for word in words:
+            if word not in self.index:
+                return []
+            doc_sets.append(set(self.index[word]))
+
+        result = set.intersection(*doc_sets)
+        return sorted(result)
 
     def dump(self, filepath: str) -> None:
         """
@@ -56,7 +70,8 @@ class InvertedIndex:
         :param filepath: path to file with documents
         :return: None
         """
-        pass
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(self.index, f)
 
     @classmethod
     def load(cls, filepath: str):
@@ -65,7 +80,10 @@ class InvertedIndex:
         :param filepath: path to file with documents
         :return: InvertedIndex
         """
-        pass
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            data = {k: list(map(int, v)) for k, v in data.items()}
+            return cls(data)
 
 
 def load_documents(filepath: str) -> Dict[int, str]:
@@ -74,7 +92,18 @@ def load_documents(filepath: str) -> Dict[int, str]:
     :param filepath: path to file with documents
     :return: Dict[int, str]
     """
-    pass
+    documents = {}
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            doc_id, content = line.lower().split("\t", 1)
+            documents[int(doc_id)] = content
+
+    return documents
 
 
 def build_inverted_index(documents: Dict[int, str]) -> InvertedIndex:
@@ -83,7 +112,22 @@ def build_inverted_index(documents: Dict[int, str]) -> InvertedIndex:
     :param documents: dict with documents
     :return: InvertedIndex class
     """
-    pass
+    inverted = {}
+
+    for doc_id, content in documents.items():
+        words = re.split(r"\W+", content)
+
+        for word in words:
+            if not word:
+                continue
+
+            if word not in inverted:
+                inverted[word] = set()
+            inverted[word].add(doc_id)
+
+    inverted = {k: sorted(v) for k, v in inverted.items()}
+
+    return InvertedIndex(inverted)
 
 
 def callback_build(arguments) -> None:
